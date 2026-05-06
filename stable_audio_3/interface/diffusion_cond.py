@@ -141,7 +141,7 @@ def generate_cond(
         "lora_configs": lora_configs,
         "batch_size": batch_size,
         "sample_size": input_sample_size,
-        "seed": seed,
+        "seed": int(seed),
         "sampler_type": sampler_type,
         "sigma_max": sigma_max,
         "init_audio": init_audio,
