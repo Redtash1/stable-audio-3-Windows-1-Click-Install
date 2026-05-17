@@ -49,7 +49,7 @@ def load_autoencoder(config_path: str, ckpt_path: str, device: str = "cpu"):
         effective_prefix = ""  # standalone AE — keys are already bare
     with safe_open(ckpt_path, framework="pt", device=device) as f:
         state_dict = {
-            k[len(effective_prefix):]: f.get_tensor(k)
+            k[len(effective_prefix) :]: f.get_tensor(k)
             for k in all_keys
             if k.startswith(effective_prefix) or not effective_prefix
         }
