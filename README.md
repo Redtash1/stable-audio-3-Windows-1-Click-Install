@@ -175,6 +175,18 @@ audio = model.generate(
 )
 ```
 
+To regenerate **multiple non-contiguous regions** in one pass, pass lists to both mask parameters:
+
+```python
+audio = model.generate(
+    inpaint_audio=inpaint_audio,
+    inpaint_mask_start_seconds=[4.0, 16.0],
+    inpaint_mask_end_seconds=[8.0, 20.0],
+    prompt="punchy kick drum fill",
+    duration=30,
+)
+```
+
 To extend an audio clip (continuation), set `inpaint_mask_start_seconds` to the length of the source file and choose a longer `duration`. See [Inference Methods](docs/workflows/inference.md) for the full controls reference.
 
 
@@ -277,10 +289,10 @@ For Stable Audio 3, please cite
   title={Stable Audio 3},
   author={Zach Evans and Julian D. Parker and Matthew Rice and CJ Carr and Zack Zukowski and Josiah Taylor and Jordi Pons},
   year={2026},
-  eprint={2605.12345},
+  eprint={2605.17991},
   archivePrefix={arXiv},
   primaryClass={cs.SD},
-  url={https://arxiv.org/abs/2505.12345}
+  url={https://arxiv.org/abs/2605.17991}
 }
 ```
 
@@ -290,9 +302,9 @@ For SAME, please cite
   title={SAME: A Semantically-Aligned Music Autoencoder},
   author={Julian D. Parker and Zach Evans and CJ Carr and Zack Zukowski and Josiah Taylor and Matthew Rice and Jordi Pons},
   year={2026},
-  eprint={2605.12345},
+  eprint={2605.18613},
   archivePrefix={arXiv},
   primaryClass={cs.SD},
-  url={https://arxiv.org/abs/2505.12345}
+  url={https://arxiv.org/abs/2605.18613}
 }
 ```
