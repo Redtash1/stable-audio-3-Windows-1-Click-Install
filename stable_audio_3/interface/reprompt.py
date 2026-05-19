@@ -1,6 +1,7 @@
 import re
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
+from huggingface_hub import scan_cache_dir
 
 # ---------------------------------------------------------------------------
 # System prompts
@@ -341,7 +342,12 @@ _cache = {"model_id": None, "tokenizer": None, "model": None}
 
 
 def is_model_cached(model_id):
-    return _cache["model_id"] == model_id
+    if _cache["model_id"] == model_id:
+        return True
+    try:
+        return any(repo.repo_id == model_id for repo in scan_cache_dir().repos)
+    except Exception:
+        return False
 
 
 def get_model(model_id):
