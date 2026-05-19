@@ -19,6 +19,7 @@ stable_audio_3_model = None
 sample_size = 5324800
 sample_rate = 44100
 n_loras = 0
+_LENGTH_EXTRACT_RE = re.compile(r' Length: (\d+) seconds\.?\s*$')
 
 
 # when using a prompt in a filename
@@ -531,22 +532,23 @@ def create_sampling_ui(stable_audio_3_model, default_prompt=None):
         ],
         api_name="generate")
 
-_LENGTH_EXTRACT_RE = re.compile(r' Length: (\d+) seconds\.?\s*$')
-def _prompt_assistant(text, progress=gr.Progress(track_tqdm=True)):
-    reprompt_model_id = "Qwen/Qwen3.5-2B"
-    if not _reprompt_is_model_cached(reprompt_model_id):
-        gr.Info(f"First-time setup. Downloading prompt assistant model ({reprompt_model_id}). This may take a few minutes. Subsequent uses will be instant.")
-        progress(0.0, desc="Downloading prompt assistant model…")
-        _reprompt_get_model(reprompt_model_id)
-    _, result, category = _reprompt_fn(text, "Auto", "", reprompt_model_id, 128, 1.11)
-    m = _LENGTH_EXTRACT_RE.search(result)
-    if m:
-        max_seconds = sample_size // sample_rate
-        seconds = min(int(m.group(1)), max_seconds)
-        result = result[:m.start()]
-    else:
-        seconds = gr.update() # leave slider unchanged
-    return result, seconds
+    def _prompt_assistant(text, progress=gr.Progress(track_tqdm=True)):
+        reprompt_model_id = "Qwen/Qwen3.5-2B"
+        if not _reprompt_is_model_cached(reprompt_model_id):
+            gr.Info(f"First-time setup. Downloading prompt assistant model ({reprompt_model_id}). This may take a few minutes. Subsequent uses will be instant.")
+            progress(0.0, desc="Downloading prompt assistant model…")
+            _reprompt_get_model(reprompt_model_id)
+        _, result, category = _reprompt_fn(text, "Auto", "", reprompt_model_id, 128, 1.11)
+        m = _LENGTH_EXTRACT_RE.search(result)
+        if m:
+            max_seconds = sample_size // sample_rate
+            seconds = min(int(m.group(1)), max_seconds)
+            result = result[:m.start()]
+        else:
+            seconds = gr.update() # leave slider unchanged
+        return result, seconds
+
+    prompt_assistant_button.click(fn=_prompt_assistant, inputs=[prompt], outputs=[prompt, seconds_total_slider])
 
 def create_diffusion_cond_ui(model, gradio_title="", default_prompt=None):
     global sample_size, sample_rate, stable_audio_3_model
