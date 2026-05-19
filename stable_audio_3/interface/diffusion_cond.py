@@ -11,9 +11,9 @@ import os, time, math
 from einops import rearrange
 
 from stable_audio_3.interface.aeiou import audio_spectrogram_image
-from stable_audio_3.verbose import vprint
 from stable_audio_3.inference.distribution_shift import LogSNRShift, FluxDistributionShift, DistributionShift, IdentityDistributionShift
 from stable_audio_3.models.lora import has_lora
+from stable_audio_3.interface.reprompt import reprompt as _reprompt_fn, get_model as _reprompt_get_model, is_model_cached as _reprompt_is_model_cached
 
 stable_audio_3_model = None
 sample_size = 5324800
@@ -293,15 +293,14 @@ def create_sampling_ui(stable_audio_3_model, default_prompt=None):
         with gr.Column(scale=6):
             prompt = gr.Textbox(show_label=False, placeholder="Prompt", value=default_prompt)
             negative_prompt = gr.Textbox(show_label=False, placeholder="Negative prompt")
-        with gr.Column(scale=3):
-            with gr.Row():
-                generate_button = gr.Button("Generate", variant='primary', scale=1)
+        prompt_assistant_button = gr.Button("Prompt Assistant", scale=1)
+        generate_button = gr.Button("Generate", variant='primary', scale=1)
 
     with gr.Row(equal_height=False):
         with gr.Column():
             with gr.Row(visible = True):
                 # Timing controls
-                seconds_total_slider = gr.Slider(minimum=0, maximum=512, step=1, value=sample_size//sample_rate, label="Seconds total", visible=has_seconds_total)
+                seconds_total_slider = gr.Slider(minimum=0, maximum=sample_size//sample_rate, step=1, value=sample_size//sample_rate, label="Seconds total", visible=has_seconds_total)
 
             with gr.Row():
                 # Steps slider
@@ -532,6 +531,22 @@ def create_sampling_ui(stable_audio_3_model, default_prompt=None):
         ],
         api_name="generate")
 
+_LENGTH_EXTRACT_RE = re.compile(r' Length: (\d+) seconds\.?\s*$')
+def _prompt_assistant(text, progress=gr.Progress(track_tqdm=True)):
+    reprompt_model_id = "Qwen/Qwen3.5-2B"
+    if not _reprompt_is_model_cached(reprompt_model_id):
+        gr.Info(f"First-time setup. Downloading prompt assistant model ({reprompt_model_id}). This may take a few minutes. Subsequent uses will be instant.")
+        progress(0.0, desc="Downloading prompt assistant model…")
+        _reprompt_get_model(reprompt_model_id)
+    _, result, category = _reprompt_fn(text, "Auto", "", reprompt_model_id, 128, 1.11)
+    m = _LENGTH_EXTRACT_RE.search(result)
+    if m:
+        max_seconds = sample_size // sample_rate
+        seconds = min(int(m.group(1)), max_seconds)
+        result = result[:m.start()]
+    else:
+        seconds = gr.update() # leave slider unchanged
+    return result, seconds
 
 def create_diffusion_cond_ui(model, gradio_title="", default_prompt=None):
     global sample_size, sample_rate, stable_audio_3_model
