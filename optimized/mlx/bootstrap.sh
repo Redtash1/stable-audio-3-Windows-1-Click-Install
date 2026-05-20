@@ -13,9 +13,11 @@
 #
 # What it does:
 #   1. Verifies you're on Apple Silicon.
-#   2. Downloads the optimized/mlx/ subdir of github.com/Stability-AI/stable-audio-3
-#      via a tarball (curl + tar — no git, no Xcode CLT needed). Sibling
-#      optimized/{tensorrt,coreml,...} subdirs are skipped.
+#   2. Fetches the project:
+#        - If git is installed → `git clone --depth=1` into ./stable-audio-3/,
+#          then cd into optimized/mlx/ (real repo; pullable, modifiable).
+#        - If not → tarball pull via curl + tar, extracting only optimized/mlx/
+#          into ./sa3_mlx/ (no git, no Xcode CLT needed).
 #   3. Runs ./install.sh -y inside it (uv + Python 3.11 + venv + weight downloads).
 #   4. Runs ./sa3 with whatever args you passed (default: "Epic orchestral buildup" demo + --play).
 #
@@ -63,34 +65,61 @@ for tool in curl tar; do
 done
 ok "curl + tar present"
 
-# ── 3. download the optimized/mlx subdir via tarball ────────────────────────
-if [[ -d "$LOCAL_DIR" && -x "$LOCAL_DIR/install.sh" ]]; then
-    step "Reusing existing $LOCAL_DIR/ (delete it to re-download)"
-else
-    if [[ -e "$LOCAL_DIR" ]]; then
-        fail "./$LOCAL_DIR exists but doesn't look like a sa3_mlx checkout — remove or rename it."
+# ── 3. fetch the project ────────────────────────────────────────────────────
+# Prefer `git clone` if git is on the machine — the user gets a real repo
+# they can pull updates from / navigate sibling subdirs in (tensorrt/, etc.).
+# Falls back to a tarball pull (curl + tar) if git is missing, so it still
+# works on a fresh macOS install without Xcode Command Line Tools.
+
+if command -v git >/dev/null 2>&1; then
+    GIT_DIR="$REPO_NAME"
+    WORK_DIR="$GIT_DIR/$SUBDIR_IN_REPO"
+
+    if [[ -d "$GIT_DIR/.git" ]]; then
+        step "Reusing existing ./$GIT_DIR (git pull --ff-only)"
+        git -C "$GIT_DIR" pull --ff-only
+    elif [[ -e "$GIT_DIR" ]]; then
+        fail "./$GIT_DIR exists but isn't a git repo — remove or rename it."
+    else
+        step "git clone https://github.com/$REPO_OWNER/$REPO_NAME → ./$GIT_DIR"
+        git clone --depth=1 "https://github.com/$REPO_OWNER/$REPO_NAME" "$GIT_DIR"
     fi
-    step "Downloading $REPO_OWNER/$REPO_NAME ($BRANCH) → ./$LOCAL_DIR"
 
-    TMP_TAR="$(mktemp -t sa3_repo.XXXXXX).tar.gz"
-    TMP_EXTRACT="$(mktemp -d -t sa3_extract.XXXXXX)"
-    trap 'rm -rf "$TMP_TAR" "$TMP_EXTRACT"' EXIT
+    [[ -d "$WORK_DIR" ]] || \
+        fail "Expected '$SUBDIR_IN_REPO' inside the repo but didn't find it."
+    ok "ready at ./$WORK_DIR"
+else
+    # No git — pull a tarball and extract only optimized/mlx/.
+    WORK_DIR="$LOCAL_DIR"
 
-    # --progress-bar writes to stderr; -f makes 404/5xx a real curl error
-    curl -fL --progress-bar "$TAR_URL" -o "$TMP_TAR"
+    if [[ -d "$LOCAL_DIR" && -x "$LOCAL_DIR/install.sh" ]]; then
+        step "Reusing existing $LOCAL_DIR/ (delete it to re-download)"
+    else
+        if [[ -e "$LOCAL_DIR" ]]; then
+            fail "./$LOCAL_DIR exists but doesn't look like a sa3_mlx checkout — remove or rename it."
+        fi
+        step "git not installed — downloading $REPO_OWNER/$REPO_NAME ($BRANCH) tarball → ./$LOCAL_DIR"
 
-    # BSD tar (macOS) extracts only paths matching the pattern.
-    tar -xz -f "$TMP_TAR" -C "$TMP_EXTRACT" "$TAR_INNER"
+        TMP_TAR="$(mktemp -t sa3_repo.XXXXXX).tar.gz"
+        TMP_EXTRACT="$(mktemp -d -t sa3_extract.XXXXXX)"
+        trap 'rm -rf "$TMP_TAR" "$TMP_EXTRACT"' EXIT
 
-    SRC="$TMP_EXTRACT/$TAR_INNER"
-    [[ -d "$SRC" ]] || fail "Expected '$TAR_INNER' inside the tarball but didn't find it."
-    mv "$SRC" "$LOCAL_DIR"
-    ok "extracted $(find "$LOCAL_DIR" -type f | wc -l | tr -d ' ') files to ./$LOCAL_DIR"
+        # --progress-bar writes to stderr; -f makes 404/5xx a real curl error
+        curl -fL --progress-bar "$TAR_URL" -o "$TMP_TAR"
+
+        # BSD tar (macOS) extracts only paths matching the pattern.
+        tar -xz -f "$TMP_TAR" -C "$TMP_EXTRACT" "$TAR_INNER"
+
+        SRC="$TMP_EXTRACT/$TAR_INNER"
+        [[ -d "$SRC" ]] || fail "Expected '$TAR_INNER' inside the tarball but didn't find it."
+        mv "$SRC" "$LOCAL_DIR"
+        ok "extracted $(find "$LOCAL_DIR" -type f | wc -l | tr -d ' ') files to ./$LOCAL_DIR"
+    fi
 fi
 
 # ── 4. install ──────────────────────────────────────────────────────────────
-cd "$LOCAL_DIR"
-[[ -x ./install.sh ]] || fail "install.sh missing or not executable in ./$LOCAL_DIR."
+cd "$WORK_DIR"
+[[ -x ./install.sh ]] || fail "install.sh missing or not executable in ./$WORK_DIR."
 step "Running ./install.sh -y"
 ./install.sh -y
 
