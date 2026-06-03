@@ -141,7 +141,113 @@ TARGETS = {
         "profile":      _DIT_PROFILE,
         "plugin":       False,
     },
+    # ── FP32 variants ────────────────────────────────────────────────────
+    # DiT FP32: read the unsurgered FP32 ONNX directly (dit.onnx), build
+    # STRONGLY_TYPED. ~2× the engine size of FP16-mixed, ~2× slower, but
+    # matches PyTorch eager bit-for-bit.
+    "sa3-sm-music-fp32": {
+        "onnx_hf":      ["sa3-sm-music/dit.onnx"],
+        "trt_local":    "sa3-sm-music/dit_fp32.trt",
+        "flags":        set(),
+        "network":      "STRONGLY_TYPED",
+        "workspace_gb": 16,
+        "profile":      _DIT_PROFILE,
+        "plugin":       False,
+    },
+    "sa3-sm-sfx-fp32": {
+        "onnx_hf":      ["sa3-sm-sfx/dit.onnx"],
+        "trt_local":    "sa3-sm-sfx/dit_fp32.trt",
+        "flags":        set(),
+        "network":      "STRONGLY_TYPED",
+        "workspace_gb": 16,
+        "profile":      _DIT_PROFILE,
+        "plugin":       False,
+    },
+    "sa3-m-fp32": {
+        # 2.9 GB external-data sidecar travels alongside.
+        "onnx_hf":      ["sa3-m/dit.onnx", "sa3-m/dit.onnx.data"],
+        "trt_local":    "sa3-m/dit_fp32.trt",
+        "flags":        set(),
+        "network":      "STRONGLY_TYPED",
+        "workspace_gb": 16,
+        "profile":      _DIT_PROFILE,
+        "plugin":       False,
+    },
+    # SAME-L FP32 decoder: the canonical ONNX is FP16-mixed; we upcast every
+    # FP16 initializer/Constant/Cast to FP32 in-process before building. The
+    # Triton SWA plugin already runs FP32 internally, so its contract is
+    # unchanged. Output engine matches PyTorch FP32 eager closely.
+    "same-l-decoder-fp32": {
+        "onnx_hf":      ["same-l/dec_dynamic_triton_swa.onnx"],
+        "trt_local":    "same-l/dec_dynamic_fp32.trt",
+        "flags":        set(),
+        "network":      "STRONGLY_TYPED",
+        "workspace_gb": 16,
+        "profile":      {"latent": [(1, 256, 32), (1, 256, 1292), (1, 256, 4096)]},
+        "plugin":       True,
+        "upcast_to_fp32": True,
+    },
+    # SAME-S FP32 decoder: the canonical ONNX is already FP32 throughout
+    # (no FP16 ops to upcast). Just build STRONGLY_TYPED so the engine
+    # honors the ONNX dtypes (FP32 instead of BF16).
+    "same-s-decoder-fp32": {
+        "onnx_hf":      ["same-s/dec_dynamic_bf16.onnx"],
+        "trt_local":    "same-s/dec_dynamic_fp32.trt",
+        "flags":        set(),
+        "network":      "STRONGLY_TYPED",
+        "workspace_gb": 16,
+        "profile":      {"latent": [(1, 256, 32), (1, 256, 1292), (1, 256, 4096)]},
+        "plugin":       False,
+    },
 }
+
+
+def _upcast_onnx_to_fp32(input_onnx: str, output_onnx: str) -> str:
+    """Walk an FP16-mixed ONNX and rewrite every FP16 entity to FP32.
+
+    Used by recipes with `"upcast_to_fp32": True`. Walks initializers,
+    value_info, graph inputs, Constant node `.t` attrs, and Cast nodes
+    (to=FP16 → to=FP32). The result is a pure-FP32 trunk that, combined
+    with STRONGLY_TYPED at build time, produces an FP32 engine.
+    """
+    import onnx, numpy as np
+    from onnx import TensorProto, numpy_helper
+
+    model = onnx.load(input_onnx)
+    n_init = n_vi = n_inp = n_out = n_const = n_cast = 0
+
+    for init in model.graph.initializer:
+        if init.data_type == TensorProto.FLOAT16:
+            arr = numpy_helper.to_array(init).astype(np.float32)
+            new_init = numpy_helper.from_array(arr, name=init.name)
+            init.CopyFrom(new_init); n_init += 1
+    for vi in model.graph.value_info:
+        if vi.type.tensor_type.elem_type == TensorProto.FLOAT16:
+            vi.type.tensor_type.elem_type = TensorProto.FLOAT; n_vi += 1
+    for inp in model.graph.input:
+        if inp.type.tensor_type.elem_type == TensorProto.FLOAT16:
+            inp.type.tensor_type.elem_type = TensorProto.FLOAT; n_inp += 1
+    for out in model.graph.output:
+        if out.type.tensor_type.elem_type == TensorProto.FLOAT16:
+            out.type.tensor_type.elem_type = TensorProto.FLOAT; n_out += 1
+    for node in model.graph.node:
+        if node.op_type == "Constant":
+            for attr in node.attribute:
+                if attr.name == "value" and attr.t.data_type == TensorProto.FLOAT16:
+                    arr = numpy_helper.to_array(attr.t).astype(np.float32)
+                    new_t = numpy_helper.from_array(arr)
+                    attr.t.CopyFrom(new_t); n_const += 1
+        if node.op_type == "Cast":
+            for attr in node.attribute:
+                if attr.name == "to" and attr.i == TensorProto.FLOAT16:
+                    attr.i = TensorProto.FLOAT; n_cast += 1
+
+    print(f"  upcast FP16→FP32: {n_init} init, {n_vi} vi, {n_inp} inp, "
+          f"{n_const} const, {n_cast} cast", flush=True)
+    onnx.save(model, output_onnx, save_as_external_data=True,
+               location=Path(output_onnx).name + ".data",
+               size_threshold=1024 * 1024)
+    return output_onnx
 
 
 def _ensure_onnx(rel_paths):
@@ -167,6 +273,14 @@ def build_one(name: str) -> str:
     # 1. Pull ONNX (cached by huggingface_hub)
     onnx_path = _ensure_onnx(recipe["onnx_hf"])
     print(f"  onnx: {onnx_path}", flush=True)
+
+    # 1b. Optional in-process FP16→FP32 upcast for FP32 variants of FP16-mixed
+    # source ONNXes (currently only SAME-L decoder needs this — DiT FP32 reads
+    # the pre-existing FP32 dit.onnx directly, SAME-S canonical ONNX is already
+    # FP32 throughout).
+    if recipe.get("upcast_to_fp32"):
+        upcast_path = "/tmp/_build_from_onnx_fp32_upcast.onnx"
+        onnx_path = _upcast_onnx_to_fp32(onnx_path, upcast_path)
 
     # 2. Optional plugin import (SAME-L only — registers samel::diff_attn_swa)
     if recipe["plugin"]:
@@ -222,23 +336,38 @@ def build_one(name: str) -> str:
 
 
 def main():
+    canonical = [k for k in TARGETS if not k.endswith("-fp32")]
+    fp32      = [k for k in TARGETS if k.endswith("-fp32")]
+
     if len(sys.argv) < 2:
         print(__doc__)
-        print("\navailable targets:")
-        for k in TARGETS:
+        print("\nCanonical (FP16-mixed) targets:")
+        for k in canonical:
             print(f"  {k}")
-        print("  all")
+        print("\nFP32 variants (~2x slower, ~2x engine size, opt-in):")
+        for k in fp32:
+            print(f"  {k}")
+        print("\nGroups:")
+        print("  all       — every canonical target (default for shipping)")
+        print("  all-fp32  — every FP32 target")
+        print("  all-both  — both canonical and FP32")
         sys.exit(1)
 
     target = sys.argv[1]
     if target == "all":
-        for name in TARGETS:
+        for name in canonical:
+            build_one(name)
+    elif target == "all-fp32":
+        for name in fp32:
+            build_one(name)
+    elif target == "all-both":
+        for name in canonical + fp32:
             build_one(name)
     elif target in TARGETS:
         build_one(target)
     else:
         print(f"unknown target: {target}")
-        print(f"valid: {list(TARGETS)} + 'all'")
+        print(f"valid: {list(TARGETS)} + 'all' / 'all-fp32' / 'all-both'")
         sys.exit(1)
 
 

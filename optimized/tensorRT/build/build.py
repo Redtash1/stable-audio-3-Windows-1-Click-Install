@@ -76,6 +76,23 @@ TARGETS = [
     {"label": "DiT sm-sfx (FP16-mixed)",
      "command": _from_onnx("sa3-sm-sfx"),
      "outputs": ["sa3-sm-sfx/dit_fp16mixed.trt"]},
+    # FP32 variants — opt-in. ~2× engine size, ~2× slower, but bit-equivalent
+    # to PyTorch eager. Useful for precision-debug or reference comparisons.
+    {"label": "[opt-in] same-l decoder FP32",
+     "command": _from_onnx("same-l-decoder-fp32"),
+     "outputs": ["same-l/dec_dynamic_fp32.trt"]},
+    {"label": "[opt-in] same-s decoder FP32",
+     "command": _from_onnx("same-s-decoder-fp32"),
+     "outputs": ["same-s/dec_dynamic_fp32.trt"]},
+    {"label": "[opt-in] DiT medium FP32",
+     "command": _from_onnx("sa3-m-fp32"),
+     "outputs": ["sa3-m/dit_fp32.trt"]},
+    {"label": "[opt-in] DiT sm-music FP32",
+     "command": _from_onnx("sa3-sm-music-fp32"),
+     "outputs": ["sa3-sm-music/dit_fp32.trt"]},
+    {"label": "[opt-in] DiT sm-sfx FP32",
+     "command": _from_onnx("sa3-sm-sfx-fp32"),
+     "outputs": ["sa3-sm-sfx/dit_fp32.trt"]},
 ]
 
 

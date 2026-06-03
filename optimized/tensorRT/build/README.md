@@ -60,7 +60,15 @@ Direct, non-interactive:
 python build_from_onnx.py t5gemma
 python build_from_onnx.py same-l-decoder
 python build_from_onnx.py sa3-sm-music
-python build_from_onnx.py all     # build everything
+python build_from_onnx.py all          # every canonical (FP16-mixed) engine
+
+# FP32 variants — opt-in. ~2× engine size, ~2× slower, bit-equivalent to PT eager.
+# Pair with `sa3_trt --precision fp32` at inference.
+python build_from_onnx.py same-l-decoder-fp32   # upcasts ONNX FP16→FP32 in-process
+python build_from_onnx.py same-s-decoder-fp32   # canonical ONNX is already FP32
+python build_from_onnx.py sa3-m-fp32            # reads HF dit.onnx (already FP32)
+python build_from_onnx.py all-fp32              # every FP32 target
+python build_from_onnx.py all-both              # canonical + FP32
 ```
 
 ### Consumer deps
