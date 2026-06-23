@@ -680,8 +680,15 @@ def infer_advanced(
 # ---------------------------------------------------------------------------
 
 DESCRIPTION = """
-# 🎵 Stable Audio 3
-Text-to-audio generation with <a href="https://huggingface.co/collections/stabilityai/stable-audio-3" target="_blank" rel="noopener noreferrer">Stable Audio 3</a>. Pick a variant, write a prompt, hit Generate. Switch to **Advanced** for the full sampler / init-audio / inpainting controls.
+# 🎵 Stable Audio 3 
+
+Pick a model, write a prompt, hit Generate, the models will automatically download upon first use . 
+
+Switch to **Advanced Tab** for the full sampler / init-audio / inpainting controls.
+
+Need help in Prompting : <a href="https://github.com/Stability-AI/stable-audio-3/blob/main/docs/guides/prompting.md" target="_blank" rel="noopener noreferrer">Prompting Guide</a>
+
+Need to report a problem: <a href="https://huggingface.co/spaces/stabilityai/stable-audio-3/discussions" target="_blank" rel="noopener noreferrer">Stable Audio 3</a>
 """
 
 
